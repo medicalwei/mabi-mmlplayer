@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script>
+window.onload = function() {
+	MIDI.connect();
+};
+ 
+window.onbeforeunload = function() { 
+	if(MIDIPlugin) { 
+		MIDIPlugin.closePlugin();
+	}
+};
+ 
+mmlKeys = {
+	'c': 0,
+	'c+': 1,
+	'd-': 1,
+	'd': 2,
+	'd+': 3,
+	'e-': 3,
+	'e': 4,
+	'f': 5,
+	'f+': 6,
+	'g-': 6,
+	'g': 7,
+	'g+': 8,
+	'a-': 8,
+	'a': 9,
+	'a+': 10,
+	'b-': 10,
+	'b': 11
+};
+ 
+MIDI = {	
+	notes: [],
+	archive: [],
+	bpm: 120,
+	octave: 4,
+	defaultLength: 4,
+	volume: 12,
+	connect: function() {
+		MIDIPlugin = document.MIDIPlugin;
+		setTimeout(function() { // run on next event loop (once MIDIPlugin is loaded)
+			try { // activate MIDIPlugin
+				MIDIPlugin.openPlugin();
+				var instruments = MIDIPlugin.getInstruments().split("|");
+				for(var key in instruments) {
+					if(instruments[key].toLowerCase().indexOf("guitar") != -1) {
+//						MIDIPlugin.setInstrument(key);
+						return;
+					}
+				}
+			} catch(e) { // plugin not supported (download externals)
+				var a = document.createElement("a");
+				a.href = "http://java.sun.com/products/java-media/sound/soundbanks.html";
+				a.target = "_blank";
+				a.appendChild(document.createTextNode("Download Soundbank"));
+				var div = document.getElementById('soundbank');
+				div.removeChild(div.firstChild);
+				div.appendChild(a);
+			}
+		}, 0);
+	},
+	start: function() {
+		MIDI.bpm = 120;
+		MIDI.octave = 4;
+		MIDI.defaultLength = 4;
+		MIDI.volume = 12;
+		if(MIDIPlugin){
+			MIDIPlugin.setVolume(MIDI.volume / 15 * 2.4);
+		}
+		MIDI.notes = clone(MIDI.archive);
+		MIDI.play();
+	},
+	play: function() {
+		var noteElement = mmlNoteRegex.exec(MIDI.notes);
+		if(!noteElement) return;
+		var duration = 0;
+		switch(noteElement[2]){
+		case 't':
+			MIDI.bpm = parseInt(noteElement[3]);
+			break;
+
+		case 'r':
+			if(MIDIPlugin) {
+				MIDIPlugin.stopAllNotes();
+			}
+			if(noteElement[3]==""){
+				var duration = (60000 / MIDI.bpm) * (4 / MIDI.defaultLength);
+			}else{
+				var duration = (60000 / MIDI.bpm) * (4 / noteElement[3]);
+				if(noteElement[4]=='.') duration = duration * 1.5;
+			}
+			break;
+
+		case 'o':
+			MIDI.octave = parseInt(noteElement[3]);
+			break;
+
+		case 'l':
+			MIDI.defaultLength = noteElement[3];
+			if(noteElement[4]=='.') MIDI.defaultLength = MIDI.defaultLength / 1.5;
+			break;
+
+		case 'v':
+			MIDI.volume = noteElement[3];
+			if(MIDIPlugin) {
+				MIDIPlugin.setVolume(MIDI.volume / 15 * 2.4);
+			}
+			break;
+
+		case '>':
+			MIDI.octave += 1;
+			break;
+
+		case '<':
+			MIDI.octave -= 1;
+			break;
+
+		default:
+			if(MIDIPlugin && noteElement[1]!="&") {
+				MIDIPlugin.playNote(mmlKeys[noteElement[2]]+((MIDI.octave-1) * 12));
+			}
+			if(noteElement[3]==""){
+				var duration = (60000 / MIDI.bpm) * (4 / MIDI.defaultLength);
+			}else{
+				var duration = (60000 / MIDI.bpm) * (4 / noteElement[3]);
+				if(noteElement[4]=='.') duration = duration * 1.5;
+			}
+		}
+		setTimeout(MIDI.play, duration);
+		console.log(noteElement[0]);
+	}
+}; 
+ 
+clone = function (o) {
+	if (typeof o != 'object') return (o);
+	if (o == null) return (o);
+	var z = (typeof o.length == 'number') ? [] : {};
+	for (var i in o) z[i] = clone(o[i]);
+	return z;
+};
+
+mmlNoteRegex = /(&?)([A-Za-z<>][\+\-\#]?)(\-?[0-9]*)(\.?)*/g;
+
+function beginPlay(){
+MIDI.archive = document.getElementById("mmlNotes").value.toLowerCase();
+MIDI.start();
+}
+
+</script>
+</head>
+<body>
+<div id="soundbank"></div>
+<form>
+<input type="text" id="mmlNotes">
+<input type="button" onclick="beginPlay()" value="Play">
+</form>
+<applet archive="MIDIPlugin.jar" code="MIDIPlugin.class" height="1" id="MIDIPlugin" name="MIDIPlugin" width="1"></applet>
+</body>
+</html>
