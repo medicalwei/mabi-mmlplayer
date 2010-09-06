@@ -58,69 +58,75 @@ MIDI = {
 				}
 				*/
 			} catch(e) { // plugin not supported (download externals)
-				var a = document.createElement("a");
-				a.href = "http://java.sun.com/products/java-media/sound/soundbanks.html";
-				a.target = "_blank";
-				a.appendChild(document.createTextNode("Download Soundbank"));
-				var div = document.getElementById('soundbank');
-				div.removeChild(div.firstChild);
-				div.appendChild(a);
 			}
 		}, 0);
 	},
 	start: function(sequence) {
-		MIDI.bpm = 120;
-		MIDI.tick = 0;
-		MIDI.TPQN = sequence.TPQN;
+		MIDI.noteNumber = 0;
+		MIDI.time = 0;
 		MIDI.playingSeq = sequence;
 		MIDI.play();
 	},
+	stopNote: function(channel, note){
+		MIDIPlugin.setChannel(channel);
+		MIDIPlugin.stopNote(note);
+	},
 	play: function() {
-		for(i=0;i<MIDI.playingSeq.channels.length;i++)
-		{
-			note = MIDI.playingSeq.channels[i].notes[MIDI.tick];
-			if(!note) continue;
-			for(j=0;j<note.length;j++){
-				
-				MIDIPlugin.setChannel(i);
-				switch(note[j].note){
-				case 'r':
-					// MIDIPlugin.stopAllNotes();
-					break;
+		console.log("Time: " + MIDI.time);
+		while (true){
+			note = MIDI.playingSeq.notes[MIDI.noteNumber];
+			if(!note || note.time > MIDI.time) break;
+			/*
+			switch(note.note){
+			case 'r':
+				// MIDIPlugin.stopAllNotes();
+				break;
 
-				case 't':
-					MIDI.bpm=note[j].duration;
-					break;
-
-				default:
-					MIDIPlugin.setVelocity((16-note[j].volume)*4);
-					MIDIPlugin.playNote(note[j].note);
-				}
-				console.log("Channel " + i + ": " + note[j].note + " " + note[j].duration);
+			default:
+			*/
+				MIDIPlugin.setChannel(note.channel);
+				MIDIPlugin.setVolume((16-note.volume)*4);
+				MIDIPlugin.playNote(note.note);
+				setTimeout("MIDI.stopNote(" + note.channel + ", " + note.note + ")", note.duration-1);
+			/*
 			}
+			*/
+			console.log(note.channel + ": " + note.note);
+			MIDI.noteNumber += 1;
 		}
-		MIDI.tick += 1;
-		if (MIDI.tick <= MIDI.playingSeq.duration){
-			setTimeout(MIDI.play, (60000 / MIDI.bpm) / MIDI.TPQN);
+		if (note){
+			setTimeout(MIDI.play, note.time - MIDI.time);
+			MIDI.time = note.time;
 		}
 	}
-}; 
+};
 
+String.prototype.parseMabinogiMML = function(){
+	var parsingString = this.replace(/[\n\r]/g,"");
+	var channelCount = 0;
+	var sequence = new MusicSequence();
+	while(true){
+		var channelString = mmlMabinogiNotation.exec(parsingString);
+		if(!channelString) break;
+		sequence.channels[channelCount] = channelString[1].toString().parseMML();
+		channelCount += 1;
+	}
+	sequence.combineNotes();
+	return sequence;
+}
+
+var bpm = 120;
 String.prototype.parseMML = function(){
 
 	var channel = new MusicChannel();
-	var tick = 0;
 	var volume = 12;
 	var octave = 4;
 	var defaultLength = 4;
-	var TPQN = 96;
+	var time = 0;
 
 	var parsingString = this.toLowerCase();
 
 	while(true){
-		if(!channel.notes[tick]){
-			channel.notes[tick]=[];
-		}
 		var noteElement = mmlNoteRegex.exec(parsingString);
 		var duration = 0;
 		if(!noteElement) break;
@@ -128,17 +134,18 @@ String.prototype.parseMML = function(){
 		switch(noteElement[2]){
 		case 't':
 			bpm = parseInt(noteElement[3]);
-			channel.notes[tick].push(new MusicNote('t', bpm));
 			break;
 
 		case 'r':
 			if(noteElement[3]==""){
-				duration = Math.ceil( TPQN * (4 / defaultLength));
+				duration = (60000 / bpm) * (4 / defaultLength);
 			}else{
-				duration = Math.ceil( TPQN * (4 / noteElement[3]) * (noteElement[4]=='.' ? 1.5 : 1) );
+				duration = (60000 / bpm) * (4 / noteElement[3]);
 			}
-			channel.notes[tick].push(new MusicNote('r', duration));
-			lastNote = tick;
+			if(noteElement[4]=='.'){
+				duration = duration * 1.5;
+			}
+			// channel.notes.push(new MusicNote(time, 'r', duration));
 			break;
 
 		case 'o':
@@ -146,11 +153,11 @@ String.prototype.parseMML = function(){
 			break;
 
 		case 'l':
-			defaultLength = noteElement[3] / (noteElement[4]=='.' ? 1.5 : 1);
+			defaultLength = parseInt(noteElement[3]);
 			break;
 
 		case 'v':
-			volume = noteElement[3];
+			volume = parseInt(noteElement[3]);
 			break;
 
 		case '>':
@@ -162,53 +169,64 @@ String.prototype.parseMML = function(){
 			break;
 
 		case 'n':
-			duration = Math.round( TPQN * (4 / defaultLength));
+			duration = (60000 / bpm) * (4 / defaultLength);
 
 			if(noteElement[1]!="&") {
 				note = parseInt(noteElement[3]);
-				channel.notes[tick].push(new MusicNote(note, duration, volume));
-				lastNote = tick;
+				channel.notes.push(new MusicNote(time, note, duration, volume));
 			}
 			break;
 
 		default:
 			if(noteElement[3]==""){
-				duration = Math.ceil( TPQN * (4 / defaultLength));
+				duration = (60000 / bpm) * (4 / defaultLength);
 			}else{
-				duration = Math.ceil( TPQN * (4 / noteElement[3]) * (noteElement[4]=='.' ? 1.5 : 1) );
+				duration = (60000 / bpm) * (4 / noteElement[3]);
+			}
+			if(noteElement[4]=='.'){
+				duration = duration * 1.5;
 			}
 			if(noteElement[1]!="&") {
 				note = mmlKeys[noteElement[2]]+((octave-1) * 12);
-				channel.notes[tick].push(new MusicNote(note, duration, volume));
-				lastNote = tick;
+				channel.notes.push(new MusicNote(time, note, duration, volume));
 			}
 		}
-		tick += duration;
+		time += duration;
 	}
 
-	channel.duration = tick;
 	return channel;
 };
 
-MusicSequence = function(channels, TPQN){
-	this.TPQN=96;
-	if(TPQN) this.TPQN=TPQN;
+MusicSequence = function(channels){
 	this.channels = []
-	if(!channels) channels=3;
-	for(i=0;i<channels;i++){
-		this.channels[i] = new MusicChannel;
-	}
-	this.duration = 0;
+	this.notes = [];
 };
+
+MusicSequence.prototype.combineNotes = function(){
+	var t=[];
+	this.notes = [];
+	for(i=0;i<this.channels.length;i++){
+		t[i]=this.channels[i].notes.shift();
+	}
+	while(true){
+		var f=undefined;
+		for(i=0;i<this.channels.length;i++){
+			if(t[i] && (f==undefined || t[f].time > t[i].time)) f=i;
+		}
+		if(f==undefined) break;
+		t[f].channel=f;
+		this.notes.push(t[f]);
+		t[f]=this.channels[f].notes.shift();
+	}
+}
 
 MusicChannel = function(){
 	this.notes = [];
-	this.duration = 0;
-	this.debug = [];
 };
 
-MusicNote = function(note, duration, volume){
+MusicNote = function(time, note, duration, volume){
 	// duration is not so used here
+	this.time = time;
 	this.note = note;
 	this.duration = duration;
 	if(volume){
@@ -217,31 +235,22 @@ MusicNote = function(note, duration, volume){
 };
 
 mmlNoteRegex = /(\&?)([A-Za-z<>][\+\-\#]?)(\-?[0-9]*)(\.?)/g;
-mmlMabinogiNotation = /[,@]([^,;]*)/;
+mmlMabinogiNotation = /[,@]([^,;]*)/g;
 
 function beginPlay(){
-sequence = new MusicSequence(3);
-sequence.channels[0] = document.getElementById("mmlNotes_0").value.parseMML();
-sequence.channels[1] = document.getElementById("mmlNotes_1").value.parseMML();
-sequence.channels[2] = document.getElementById("mmlNotes_2").value.parseMML();
-for(i=0;i<3;i++){
-	if(sequence.duration < sequence.channels[i].duration) {
-		sequence.duration = sequence.channels[i].duration;
-	}
-}
+sequence = document.getElementById("mmlNotes").value.parseMabinogiMML();
 MIDI.start(sequence);
+return false;
 };
 
 </script>
 </head>
 <body>
 <div id="soundbank"></div>
-<form>
-<input type="text" id="mmlNotes_0">
-<input type="text" id="mmlNotes_1">
-<input type="text" id="mmlNotes_2">
-<input type="button" onclick="beginPlay()" value="Play">
+<form onsubmit="return beginPlay();">
+<textarea id="mmlNotes"></textarea>
+<input type="submit"  value="Play">
 </form>
 <applet archive="MIDIPlugin.jar" code="MIDIPlugin.class" height="1" id="MIDIPlugin" name="MIDIPlugin" width="1"></applet>
 </body>
-</html>
+</html> 
